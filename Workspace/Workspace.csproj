@@ -9,11 +9,13 @@
     <RootNamespace>GitWorkspace</RootNamespace>
     <Product>GitWorkspace</Product>
     <Company>GitWorkspace</Company>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <Resource Include="Assets/icon.ico" />
     <Content Include="Assets/terminal/*.html;Assets/terminal/*.css;Assets/terminal/*.js;Assets/terminal/vendor/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
