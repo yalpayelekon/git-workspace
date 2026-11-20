@@ -25,6 +25,12 @@ public static class LspPaths
         ".dart" => "dart",
         ".go" => "go",
         ".py" or ".pyi" => "python",
+        ".ts" or ".mts" or ".cts" => "typescript",
+        ".tsx" => "typescriptreact",
+        ".js" or ".mjs" or ".cjs" => "javascript",
+        ".jsx" => "javascriptreact",
+        ".rs" => "rust",
+        ".cs" => "csharp",
         _ => null
     };
 
@@ -39,7 +45,17 @@ public static class LspPaths
             name.Equals("requirements.txt", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("setup.py", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("setup.cfg", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("Pipfile", StringComparison.OrdinalIgnoreCase))
+            name.Equals("Pipfile", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("package.json", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("package-lock.json", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("tsconfig.json", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("jsconfig.json", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Cargo.toml", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Cargo.lock", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".sln", StringComparison.OrdinalIgnoreCase))
             return true;
         return LanguageId(path) != null;
     }
@@ -57,6 +73,7 @@ public static class LspPaths
                 part.Equals("build", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals(".dart_tool", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("target", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("__pycache__", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals(".venv", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("venv", StringComparison.OrdinalIgnoreCase) ||

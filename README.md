@@ -2,7 +2,8 @@
 
 A native Windows Git GUI with AvalonEdit document tabs, side-by-side diffs, a
 commit graph, `git grep` search, ConPTY + xterm.js terminal, and optional
-Dart/Go/Python language servers. Built with WPF (.NET 10) — no Electron.
+Dart / Go / Python / TypeScript / Rust / C# language servers. Built with WPF
+(.NET 10) — no Electron.
 
 ## Requirements
 
@@ -21,6 +22,13 @@ Optional for language features:
   `basedpyright-langserver`, then `pyright-langserver`, then `pylsp` on PATH
   (also searches common npm / Python install dirs)
 - Optional `ruff` on PATH for Python **CLI snapshot**
+- `typescript-language-server` when the opened repo has root `package.json`,
+  `tsconfig.json`, or `jsconfig.json` (npm global / PATH); optional `tsc` for
+  TypeScript **CLI snapshot**
+- `rust-analyzer` when the opened repo has `Cargo.toml` (PATH or `~/.cargo/bin`);
+  optional `cargo check` for Rust **CLI snapshot**
+- `csharp-ls` (or OmniSharp `-lsp`) when a `.sln` / `.csproj` exists at the
+  root or one project folder deep; optional `dotnet build` for C# **CLI snapshot**
 
 ## Start
 
@@ -53,9 +61,11 @@ Use **File → Open Repository…** to switch checkouts while running.
   include/exclude globs (Ctrl+Shift+F).
 - **Source Control** — stage, commit, pull, push, discard, file history, and
   commit graph with side-by-side revision diffs.
-- **Problems** — Dart, gopls, and/or a Python language server start only when
-  matching project files exist. **CLI snapshot** runs `flutter analyze` (or
-  `dart analyze` when Flutter is absent), `go vet`, and/or `ruff check`.
+- **Problems** — language servers start only when matching project files exist
+  (Dart, gopls, Python LSP, typescript-language-server, rust-analyzer,
+  csharp-ls/OmniSharp). **CLI snapshot** runs `flutter analyze` (or
+  `dart analyze`), `go vet`, `ruff check`, `tsc --noEmit`, `cargo check`,
+  and/or `dotnet build` for detected stacks.
 - **Terminal** — interactive PowerShell via ConPTY; WebView2 + xterm.js loads
   on first open.
 
@@ -77,7 +87,7 @@ dotnet build Workspace/Workspace.csproj -c Release
 dotnet run --project SmokeTests/SmokeTests.csproj -c Release
 ```
 
-Against a Flutter + Go checkout:
+Against a multi-stack checkout:
 
 ```powershell
 dotnet run --project SmokeTests/SmokeTests.csproj -c Release -- --analyzers D:\path\to\repo

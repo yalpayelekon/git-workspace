@@ -13,6 +13,9 @@ public sealed class LanguageService : IAsyncDisposable
     private LspProcessHost? dart;
     private LspProcessHost? go;
     private LspProcessHost? python;
+    private LspProcessHost? typescript;
+    private LspProcessHost? rust;
+    private LspProcessHost? csharp;
     private bool disposed;
 
     public DiagnosticStore Store { get; } = new();
@@ -84,6 +87,45 @@ public sealed class LanguageService : IAsyncDisposable
             else errors.Add("Python language server not found (basedpyright/pyright/pylsp)");
         }
 
+        if (profile.HasTypeScript)
+        {
+            var server = LspProcessHost.FindTypeScriptLanguageServer();
+            if (server != null)
+            {
+                typescript = new LspProcessHost("TypeScript", server.Value.Executable, server.Value.Arguments, root, Store);
+                Wire(typescript);
+                try { await typescript.StartAsync(root, cancellation).ConfigureAwait(false); }
+                catch (Exception ex) { errors.Add("TypeScript: " + ex.Message); Log?.Invoke("TypeScript LSP start failed: " + ex.Message); typescript = null; }
+            }
+            else errors.Add("typescript-language-server not found");
+        }
+
+        if (profile.HasRust)
+        {
+            var analyzer = LspProcessHost.FindRustAnalyzer();
+            if (analyzer != null)
+            {
+                rust = new LspProcessHost("Rust", analyzer, [], root, Store);
+                Wire(rust);
+                try { await rust.StartAsync(root, cancellation).ConfigureAwait(false); }
+                catch (Exception ex) { errors.Add("Rust: " + ex.Message); Log?.Invoke("rust-analyzer start failed: " + ex.Message); rust = null; }
+            }
+            else errors.Add("rust-analyzer not found");
+        }
+
+        if (profile.HasCSharp)
+        {
+            var server = LspProcessHost.FindCSharpLanguageServer();
+            if (server != null)
+            {
+                csharp = new LspProcessHost("C#", server.Value.Executable, server.Value.Arguments, root, Store);
+                Wire(csharp);
+                try { await csharp.StartAsync(root, cancellation).ConfigureAwait(false); }
+                catch (Exception ex) { errors.Add("C#: " + ex.Message); Log?.Invoke("C# LSP start failed: " + ex.Message); csharp = null; }
+            }
+            else errors.Add("C# language server not found (csharp-ls/OmniSharp)");
+        }
+
         watcher?.Dispose();
         watcher = new WorkspaceWatcher(root);
         watcher.Changed += OnWatched;
@@ -110,9 +152,8 @@ public sealed class LanguageService : IAsyncDisposable
         openDocuments[path] = 0;
         var preview = await Files.ReadAsync(path).ConfigureAwait(false);
         if (!preview.IsText) return;
-        if (language == "dart" && dart != null) await dart.OpenDocumentAsync(path, preview.Text, language).ConfigureAwait(false);
-        if (language == "go" && go != null) await go.OpenDocumentAsync(path, preview.Text, language).ConfigureAwait(false);
-        if (language == "python" && python != null) await python.OpenDocumentAsync(path, preview.Text, language).ConfigureAwait(false);
+        var host = HostFor(language);
+        if (host != null) await host.OpenDocumentAsync(path, preview.Text, language).ConfigureAwait(false);
     }
 
     public async Task CloseDocumentAsync(string relativeOrAbsolutePath)
@@ -121,9 +162,10 @@ public sealed class LanguageService : IAsyncDisposable
             ? relativeOrAbsolutePath
             : Path.Combine(root, relativeOrAbsolutePath));
         openDocuments.TryRemove(path, out _);
-        if (LspPaths.LanguageId(path) == "dart" && dart != null) await dart.CloseDocumentAsync(path).ConfigureAwait(false);
-        if (LspPaths.LanguageId(path) == "go" && go != null) await go.CloseDocumentAsync(path).ConfigureAwait(false);
-        if (LspPaths.LanguageId(path) == "python" && python != null) await python.CloseDocumentAsync(path).ConfigureAwait(false);
+        var language = LspPaths.LanguageId(path);
+        if (language == null) return;
+        var host = HostFor(language);
+        if (host != null) await host.CloseDocumentAsync(path).ConfigureAwait(false);
     }
 
     public async Task ChangeDocumentAsync(string relativeOrAbsolutePath, string text)
@@ -134,9 +176,8 @@ public sealed class LanguageService : IAsyncDisposable
         var language = LspPaths.LanguageId(path);
         if (language == null) return;
         openDocuments[path] = 0;
-        if (language == "dart" && dart != null) await dart.ChangeDocumentAsync(path, text, language).ConfigureAwait(false);
-        if (language == "go" && go != null) await go.ChangeDocumentAsync(path, text, language).ConfigureAwait(false);
-        if (language == "python" && python != null) await python.ChangeDocumentAsync(path, text, language).ConfigureAwait(false);
+        var host = HostFor(language);
+        if (host != null) await host.ChangeDocumentAsync(path, text, language).ConfigureAwait(false);
     }
 
     public async Task SaveDocumentAsync(string relativeOrAbsolutePath, string text)
@@ -147,10 +188,20 @@ public sealed class LanguageService : IAsyncDisposable
         var language = LspPaths.LanguageId(path);
         if (language == null) return;
         openDocuments[path] = 0;
-        if (language == "dart" && dart != null) await dart.SaveDocumentAsync(path, text, language).ConfigureAwait(false);
-        if (language == "go" && go != null) await go.SaveDocumentAsync(path, text, language).ConfigureAwait(false);
-        if (language == "python" && python != null) await python.SaveDocumentAsync(path, text, language).ConfigureAwait(false);
+        var host = HostFor(language);
+        if (host != null) await host.SaveDocumentAsync(path, text, language).ConfigureAwait(false);
     }
+
+    private LspProcessHost? HostFor(string language) => language switch
+    {
+        "dart" => dart,
+        "go" => go,
+        "python" => python,
+        "typescript" or "javascript" or "typescriptreact" or "javascriptreact" => typescript,
+        "rust" => rust,
+        "csharp" => csharp,
+        _ => null
+    };
 
     private void Wire(LspProcessHost host)
     {
@@ -172,6 +223,9 @@ public sealed class LanguageService : IAsyncDisposable
             if (dart != null) await dart.NotifyWatchedAsync(payload).ConfigureAwait(false);
             if (go != null) await go.NotifyWatchedAsync(payload).ConfigureAwait(false);
             if (python != null) await python.NotifyWatchedAsync(payload).ConfigureAwait(false);
+            if (typescript != null) await typescript.NotifyWatchedAsync(payload).ConfigureAwait(false);
+            if (rust != null) await rust.NotifyWatchedAsync(payload).ConfigureAwait(false);
+            if (csharp != null) await csharp.NotifyWatchedAsync(payload).ConfigureAwait(false);
             foreach (var change in changes)
             {
                 if (change.Type == 3 || !openDocuments.ContainsKey(change.Path)) continue;
@@ -187,6 +241,9 @@ public sealed class LanguageService : IAsyncDisposable
         if (dart != null) { await dart.DisposeAsync().ConfigureAwait(false); dart = null; }
         if (go != null) { await go.DisposeAsync().ConfigureAwait(false); go = null; }
         if (python != null) { await python.DisposeAsync().ConfigureAwait(false); python = null; }
+        if (typescript != null) { await typescript.DisposeAsync().ConfigureAwait(false); typescript = null; }
+        if (rust != null) { await rust.DisposeAsync().ConfigureAwait(false); rust = null; }
+        if (csharp != null) { await csharp.DisposeAsync().ConfigureAwait(false); csharp = null; }
     }
 
     public async ValueTask DisposeAsync()

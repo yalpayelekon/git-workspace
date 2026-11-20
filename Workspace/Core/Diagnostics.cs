@@ -67,6 +67,46 @@ public static partial class Diagnostics
         return new(problems, result.Display, unexpected || result.Truncated);
     }
 
+    public static async Task<AnalysisResult> TypeScriptAsync(string root, CancellationToken cancellation)
+    {
+        var tsc = Processes.Find("tsc") ?? Processes.Find("tsc.cmd") ?? Processes.Find("tsc.exe");
+        if (tsc == null) throw new FileNotFoundException("tsc was not found on PATH. Install typescript for TypeScript CLI snapshots.");
+        string[] args;
+        if (File.Exists(Path.Combine(root, "tsconfig.json")))
+            args = ["--noEmit", "-p", ".", "--pretty", "false"];
+        else if (File.Exists(Path.Combine(root, "jsconfig.json")))
+            args = ["--noEmit", "-p", "jsconfig.json", "--pretty", "false"];
+        else
+            args = ["--noEmit", "--pretty", "false", "--allowJs", "true", "."];
+        var result = await Processes.RunAsync(tsc, args, root, cancellation, 8 * 1024 * 1024);
+        var problems = ParseTypeScript(result.Output + "\n" + result.Error, root);
+        var unexpected = result.ExitCode != 0 && problems.Count == 0;
+        return new(problems, result.Display, unexpected || result.Truncated);
+    }
+
+    public static async Task<AnalysisResult> RustAsync(string root, CancellationToken cancellation)
+    {
+        var cargo = Processes.Find("cargo") ?? Processes.Find("cargo.exe");
+        if (cargo == null) throw new FileNotFoundException("cargo was not found on PATH. Install Rust for cargo check snapshots.");
+        var result = await Processes.RunAsync(cargo, ["check", "--message-format=json", "--quiet"], root, cancellation, 8 * 1024 * 1024);
+        var problems = ParseCargo(result.Output + "\n" + result.Error, root);
+        var unexpected = result.ExitCode != 0 && problems.Count == 0;
+        return new(problems, result.Display, unexpected || result.Truncated);
+    }
+
+    public static async Task<AnalysisResult> CSharpAsync(string root, CancellationToken cancellation)
+    {
+        var dotnet = Processes.Find("dotnet") ?? Processes.Find("dotnet.exe");
+        if (dotnet == null) throw new FileNotFoundException("dotnet was not found on PATH.");
+        var result = await Processes.RunAsync(dotnet, ["build", "--nologo", "-v:q", "--no-restore"], root, cancellation, 8 * 1024 * 1024);
+        // Retry with restore if the first pass failed with no parseable diagnostics.
+        if (result.ExitCode != 0 && ParseDotNet(result.Output + "\n" + result.Error, root).Count == 0)
+            result = await Processes.RunAsync(dotnet, ["build", "--nologo", "-v:q"], root, cancellation, 8 * 1024 * 1024);
+        var problems = ParseDotNet(result.Output + "\n" + result.Error, root);
+        var unexpected = result.ExitCode != 0 && problems.Count == 0;
+        return new(problems, result.Display, unexpected || result.Truncated);
+    }
+
     public static List<Problem> ParseRuff(string json, string root)
     {
         var result = new List<Problem>();
@@ -102,6 +142,94 @@ public static partial class Diagnostics
         catch (JsonException)
         {
             // Keep CLI log; treat as tool failure via empty parse.
+        }
+        return result;
+    }
+
+    [GeneratedRegex(@"^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex TypeScriptPattern();
+    public static List<Problem> ParseTypeScript(string text, string root)
+    {
+        var result = new List<Problem>();
+        foreach (var line in text.Split('\n'))
+        {
+            var match = TypeScriptPattern().Match(line.TrimEnd('\r'));
+            if (!match.Success) continue;
+            result.Add(new("TypeScript", match.Groups[4].Value.ToLowerInvariant(),
+                Path.GetFullPath(match.Groups[1].Value, root),
+                int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value),
+                match.Groups[6].Value, match.Groups[5].Value));
+        }
+        return result;
+    }
+
+    public static List<Problem> ParseCargo(string text, string root)
+    {
+        var result = new List<Problem>();
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(trimmed) || !trimmed.TrimStart().StartsWith('{')) continue;
+            try
+            {
+                using var document = JsonDocument.Parse(trimmed);
+                var rootElement = document.RootElement;
+                if (!rootElement.TryGetProperty("reason", out var reason) ||
+                    reason.GetString() != "compiler-message")
+                    continue;
+                if (!rootElement.TryGetProperty("message", out var message)) continue;
+                var level = message.TryGetProperty("level", out var levelNode) ? levelNode.GetString() ?? "warning" : "warning";
+                if (level is "help" or "note") continue;
+                var severity = level.Equals("error", StringComparison.OrdinalIgnoreCase) ? "error" : "warning";
+                var textMessage = message.TryGetProperty("message", out var msgNode) ? msgNode.GetString() ?? "" : "";
+                var code = "";
+                if (message.TryGetProperty("code", out var codeNode) && codeNode.ValueKind == JsonValueKind.Object &&
+                    codeNode.TryGetProperty("code", out var codeValue))
+                    code = codeValue.GetString() ?? "";
+                var spans = message.TryGetProperty("spans", out var spansNode) && spansNode.ValueKind == JsonValueKind.Array
+                    ? spansNode
+                    : default;
+                string? file = null;
+                var lineNumber = 1;
+                var column = 1;
+                if (spans.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var span in spans.EnumerateArray())
+                    {
+                        var primary = span.TryGetProperty("is_primary", out var primaryNode) && primaryNode.GetBoolean();
+                        if (!primary && file != null) continue;
+                        file = span.TryGetProperty("file_name", out var fileNode) ? fileNode.GetString() : file;
+                        if (span.TryGetProperty("line_start", out var lineNode)) lineNumber = lineNode.GetInt32();
+                        if (span.TryGetProperty("column_start", out var colNode)) column = colNode.GetInt32();
+                        if (primary) break;
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(file)) continue;
+                result.Add(new("Rust", severity, Path.GetFullPath(file, root), lineNumber, column, textMessage, code));
+            }
+            catch (JsonException) { }
+        }
+        return result;
+    }
+
+    [GeneratedRegex(@"^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(\w+):\s*(.*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex DotNetPattern();
+    public static List<Problem> ParseDotNet(string text, string root)
+    {
+        var result = new List<Problem>();
+        foreach (var line in text.Split('\n'))
+        {
+            var match = DotNetPattern().Match(line.TrimEnd('\r'));
+            if (!match.Success) continue;
+            var code = match.Groups[5].Value;
+            // Skip MSBuild infrastructure noise without source locations of interest.
+            if (code.StartsWith("MSB", StringComparison.OrdinalIgnoreCase) &&
+                !match.Groups[1].Value.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                continue;
+            result.Add(new("C#", match.Groups[4].Value.ToLowerInvariant(),
+                Path.GetFullPath(match.Groups[1].Value, root),
+                int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value),
+                match.Groups[6].Value, code));
         }
         return result;
     }

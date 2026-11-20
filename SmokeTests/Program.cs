@@ -38,7 +38,7 @@ internal static class Program
                 {
                     using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
                     var profile = WorkspaceProfile.Detect(repository);
-                    Check(profile.HasAnyLanguage, "Analyzer target has neither Dart, Go, nor Python project markers");
+                    Check(profile.HasAnyLanguage, "Analyzer target has no supported language project markers");
                     if (profile.HasDart)
                     {
                         var result = await Diagnostics.FlutterAsync(repository, timeout.Token);
@@ -56,6 +56,24 @@ internal static class Program
                         var result = await Diagnostics.PythonAsync(repository, timeout.Token);
                         Console.WriteLine($"Analyzer Python: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
                         Check(!result.Failed, "Python analyzer invocation failed");
+                    }
+                    if (profile.HasTypeScript)
+                    {
+                        var result = await Diagnostics.TypeScriptAsync(repository, timeout.Token);
+                        Console.WriteLine($"Analyzer TypeScript: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
+                        Check(!result.Failed, "TypeScript analyzer invocation failed");
+                    }
+                    if (profile.HasRust)
+                    {
+                        var result = await Diagnostics.RustAsync(repository, timeout.Token);
+                        Console.WriteLine($"Analyzer Rust: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
+                        Check(!result.Failed, "Rust analyzer invocation failed");
+                    }
+                    if (profile.HasCSharp)
+                    {
+                        var result = await Diagnostics.CSharpAsync(repository, timeout.Token);
+                        Console.WriteLine($"Analyzer C#: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
+                        Check(!result.Failed, "C# analyzer invocation failed");
                     }
                 }
                 else if (args is ["--git-locks"])
@@ -223,27 +241,56 @@ internal static class Program
             && string.Equals(midRepo, Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase),
             "--repository was not accepted unless first argument");
         var emptyProfile = WorkspaceProfile.Detect(root);
-        Check(!emptyProfile.HasDart && !emptyProfile.HasGo && !emptyProfile.HasPython,
-            "Empty git repo should not enable Dart/Go/Python profiles");
+        Check(!emptyProfile.HasAnyLanguage,
+            "Empty git repo should not enable language profiles");
         await File.WriteAllTextAsync(Path.Combine(root, "pubspec.yaml"), "name: sample\n");
         Directory.CreateDirectory(Path.Combine(root, "go"));
         await File.WriteAllTextAsync(Path.Combine(root, "go", "go.mod"), "module example.com/demo\n\ngo 1.22\n");
         await File.WriteAllTextAsync(Path.Combine(root, "pyproject.toml"), "[project]\nname = \"sample\"\n");
+        await File.WriteAllTextAsync(Path.Combine(root, "package.json"), "{\"name\":\"sample\"}\n");
+        await File.WriteAllTextAsync(Path.Combine(root, "Cargo.toml"), "[package]\nname = \"sample\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+        Directory.CreateDirectory(Path.Combine(root, "App"));
+        await File.WriteAllTextAsync(Path.Combine(root, "App", "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n");
         var fullProfile = WorkspaceProfile.Detect(root);
         Check(fullProfile.HasDart && fullProfile.HasGo && fullProfile.HasPython
+            && fullProfile.HasTypeScript && fullProfile.HasRust && fullProfile.HasCSharp
             && string.Equals(fullProfile.GoModuleDirectory, Path.Combine(root, "go"), StringComparison.OrdinalIgnoreCase),
-            "WorkspaceProfile missed pubspec.yaml, go/go.mod, or pyproject.toml");
+            "WorkspaceProfile missed one or more language project markers");
         Check(LspPaths.LanguageId(Path.Combine(root, "app.py")) == "python"
-            && LspPaths.LanguageId(Path.Combine(root, "types.pyi")) == "python",
-            "Python language ids were not mapped");
+            && LspPaths.LanguageId(Path.Combine(root, "types.pyi")) == "python"
+            && LspPaths.LanguageId(Path.Combine(root, "a.ts")) == "typescript"
+            && LspPaths.LanguageId(Path.Combine(root, "a.tsx")) == "typescriptreact"
+            && LspPaths.LanguageId(Path.Combine(root, "a.js")) == "javascript"
+            && LspPaths.LanguageId(Path.Combine(root, "a.jsx")) == "javascriptreact"
+            && LspPaths.LanguageId(Path.Combine(root, "a.rs")) == "rust"
+            && LspPaths.LanguageId(Path.Combine(root, "a.cs")) == "csharp",
+            "Language ids were not mapped for Python/TS/Rust/C#");
         var ruffProblems = Diagnostics.ParseRuff(
             """[{"filename":"mod.py","code":"F401","message":"unused import","severity":"error","location":{"row":2,"column":1}}]""",
             root);
         Check(ruffProblems.Count == 1 && ruffProblems[0].Line == 2 && ruffProblems[0].Code == "F401",
             "Ruff JSON parsing failed");
+        var tsProblems = Diagnostics.ParseTypeScript(
+            "src/app.ts(10,5): error TS2322: Type 'string' is not assignable to type 'number'.\nsrc/b.ts(2,1): warning TS6133: 'x' is declared but never used.",
+            root);
+        Check(tsProblems.Count == 2 && tsProblems[0].Code == "TS2322" && tsProblems[0].Line == 10 && tsProblems[1].Severity == "warning",
+            "TypeScript diagnostic parsing failed");
+        var cargoProblems = Diagnostics.ParseCargo(
+            """{"reason":"compiler-message","message":{"level":"error","message":"cannot find value `x`","code":{"code":"E0425"},"spans":[{"file_name":"src/main.rs","is_primary":true,"line_start":4,"column_start":5}]}}""",
+            root);
+        Check(cargoProblems.Count == 1 && cargoProblems[0].Source == "Rust" && cargoProblems[0].Code == "E0425" && cargoProblems[0].Line == 4,
+            "Cargo JSON diagnostic parsing failed");
+        var csProblems = Diagnostics.ParseDotNet(
+            @"App\Program.cs(12,17): error CS0103: The name 'x' does not exist in the current context",
+            root);
+        Check(csProblems.Count == 1 && csProblems[0].Source == "C#" && csProblems[0].Code == "CS0103" && csProblems[0].Column == 17,
+            "dotnet build diagnostic parsing failed");
         File.Delete(Path.Combine(root, "pubspec.yaml"));
         File.Delete(Path.Combine(root, "pyproject.toml"));
+        File.Delete(Path.Combine(root, "package.json"));
+        File.Delete(Path.Combine(root, "Cargo.toml"));
         Directory.Delete(Path.Combine(root, "go"), true);
+        Directory.Delete(Path.Combine(root, "App"), true);
         var language = new LanguageService(root, WorkspaceProfile.Detect(root));
         await language.StartAsync();
         Check(language.Status == "No language servers for this repo", "LanguageService should stay quiet without project markers");

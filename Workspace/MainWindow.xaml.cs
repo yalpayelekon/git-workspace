@@ -133,8 +133,8 @@ public partial class MainWindow : Window
     private static string WelcomeText(WorkspaceProfile profile)
     {
         var problems = profile.HasAnyLanguage
-            ? "Problems: language servers start for detected stacks (pubspec.yaml → Dart, go.mod → Go, pyproject.toml/requirements.txt/setup.py → Python via basedpyright/pyright/pylsp). Use Restart language servers if a tool was missing at startup; CLI snapshot runs flutter analyze / go vet / ruff for detected stacks."
-            : "Problems: no Dart, Go, or Python project markers detected, so language servers and CLI analyze stay off.";
+            ? "Problems: language servers start for detected stacks (Dart, Go, Python, TypeScript/JS, Rust, C#). Use Restart language servers if a tool was missing at startup; CLI snapshot runs the matching analyzer for each detected stack."
+            : "Problems: no supported project markers detected, so language servers and CLI analyze stay off.";
         return $"{AppInfo.ProductName}\n\nExplorer: browse files and edit text in the File tab (Ctrl+S saves, Ctrl+Shift+R reverts).\nSearch: find text across the repository with case / word / regex and include/exclude globs.\nSource Control: stage, commit, pull, push and inspect history.\n{problems}\nTerminal: open interactive PowerShell sessions.\n\nCtrl+B  sidebar\nCtrl+J  bottom panel\nCtrl+`  terminal\nCtrl+Shift+F  search\nCtrl+Shift+M  problems\nCtrl+S  save file\nCtrl+Shift+R  revert file\nF5  refresh Git\n\nFile → Open Repository… switches checkouts. Language servers start with the window when applicable; terminals still start when opened.";
     }
 
@@ -144,8 +144,11 @@ public partial class MainWindow : Window
         if (profile.HasDart) parts.Add("flutter/dart analyze");
         if (profile.HasGo) parts.Add("go vet");
         if (profile.HasPython) parts.Add("ruff check");
+        if (profile.HasTypeScript) parts.Add("tsc --noEmit");
+        if (profile.HasRust) parts.Add("cargo check");
+        if (profile.HasCSharp) parts.Add("dotnet build");
         return parts.Count == 0
-            ? "No Dart/Flutter, Go, or Python project detected in this repository."
+            ? "No supported language project detected in this repository."
             : $"Force {string.Join(" + ", parts)} once (does not replace live LSP diagnostics).";
     }
 
@@ -1189,7 +1192,7 @@ public partial class MainWindow : Window
         if (analysisCancellation != null) return;
         if (!profile.HasAnyLanguage)
         {
-            AnalysisStatus.Text = "No Dart/Flutter, Go, or Python project detected in this repository.";
+            AnalysisStatus.Text = "No supported language project detected in this repository.";
             return;
         }
         analysisCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -1203,6 +1206,9 @@ public partial class MainWindow : Window
         if (profile.HasDart) sources.Add("Dart");
         if (profile.HasGo) sources.Add("Go");
         if (profile.HasPython) sources.Add("Python");
+        if (profile.HasTypeScript) sources.Add("TypeScript");
+        if (profile.HasRust) sources.Add("Rust");
+        if (profile.HasCSharp) sources.Add("C#");
         try
         {
             foreach (var source in sources)
@@ -1214,7 +1220,10 @@ public partial class MainWindow : Window
                     {
                         "Dart" => await Diagnostics.DartStackAsync(root, token),
                         "Go" => await Diagnostics.GoAsync(profile.GoModuleDirectory ?? root, token),
-                        _ => await Diagnostics.PythonAsync(root, token)
+                        "Python" => await Diagnostics.PythonAsync(root, token),
+                        "TypeScript" => await Diagnostics.TypeScriptAsync(root, token),
+                        "Rust" => await Diagnostics.RustAsync(root, token),
+                        _ => await Diagnostics.CSharpAsync(root, token)
                     };
                     findings.AddRange(result.Problems); failed |= result.Failed;
                     ProblemsList.ItemsSource = findings.ToArray();

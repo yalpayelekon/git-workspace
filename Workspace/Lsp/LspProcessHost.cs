@@ -277,16 +277,56 @@ public sealed class LspProcessHost : IAsyncDisposable
         return null;
     }
 
+    /// <summary>Resolve typescript-language-server (npm global or PATH).</summary>
+    public static (string Executable, string[] Arguments)? FindTypeScriptLanguageServer()
+    {
+        foreach (var name in new[] { "typescript-language-server.cmd", "typescript-language-server", "typescript-language-server.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return (path, ["--stdio"]);
+        }
+        return null;
+    }
+
+    public static string? FindRustAnalyzer()
+    {
+        foreach (var name in new[] { "rust-analyzer", "rust-analyzer.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return path;
+        }
+        return null;
+    }
+
+    /// <summary>Resolve csharp-ls, then OmniSharp -lsp.</summary>
+    public static (string Executable, string[] Arguments)? FindCSharpLanguageServer()
+    {
+        foreach (var name in new[] { "csharp-ls", "csharp-ls.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return (path, []);
+        }
+        foreach (var name in new[] { "OmniSharp", "OmniSharp.exe", "omnisharp", "omnisharp.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return (path, ["-lsp"]);
+        }
+        return null;
+    }
+
     private static string? FindOnPathOrCommonDirs(string name)
     {
         var found = Processes.Find(name);
         if (found != null) return found;
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var candidates = new List<string>
         {
             Path.Combine(roaming, "npm", name),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", name)
+            Path.Combine(home, ".local", "bin", name),
+            Path.Combine(home, ".cargo", "bin", name),
+            Path.Combine(home, ".dotnet", "tools", name)
         };
         var pythonRoot = Path.Combine(localAppData, "Programs", "Python");
         if (Directory.Exists(pythonRoot))
