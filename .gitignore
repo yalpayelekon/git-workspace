@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/node_modules/
+Workspace/Assets/terminal/vendor/
+out/
+artifacts/
+graphify-out/
+*.user
+*.suo
+.vs/

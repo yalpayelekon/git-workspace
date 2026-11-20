@@ -1,0 +1,13 @@
+html,body { height:100%; margin:0; background:#1e1e1e; color:#ddd; font:12px 'Segoe UI',sans-serif; overflow:hidden; }
+body { display:flex; flex-direction:column; }
+nav { flex:0 0 30px; display:flex; align-items:center; background:#252526; gap:3px; }
+button { background:#333; border:0; color:#ddd; padding:5px 9px; cursor:pointer; }
+button.active { background:#09577c; }
+button:hover { background:#454549; }
+button:focus-visible { outline:1px solid #75beff; outline-offset:-2px; }
+#save { margin-left:6px; }
+#hint { margin-left:auto; margin-right:10px; color:#aaa; font-size:11px; }
+main { position:relative; flex:1; min-height:0; }
+.session { position:absolute; inset:5px; visibility:hidden; }
+.session.active { visibility:visible; }
+.close { margin-left:8px; color:#aaa; }

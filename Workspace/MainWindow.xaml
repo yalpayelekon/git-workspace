@@ -1,0 +1,268 @@
+<Window x:Class="GitWorkspace.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:GitWorkspace" Title="GitWorkspace" Width="1320" Height="860" MinWidth="980" MinHeight="640" WindowStartupLocation="CenterScreen">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top">
+      <MenuItem Header="_File">
+        <MenuItem Header="Open Repository..." Click="OpenRepositoryClick"/>
+        <MenuItem x:Name="RecentReposMenu" Header="Recent Repositories" SubmenuOpened="RecentReposMenuOpening"/>
+      </MenuItem>
+    </Menu>
+    <StatusBar x:Name="StatusBar" DockPanel.Dock="Bottom" Background="#0C4A6E" Foreground="White"><TextBlock x:Name="StatusText" Text="Loading repository..."/></StatusBar>
+    <Grid>
+      <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="400" MinWidth="220"/><ColumnDefinition x:Name="SidebarDivider" Width="5"/><ColumnDefinition Width="*" MinWidth="350"/></Grid.ColumnDefinitions>
+      <TabControl x:Name="Sidebar" Grid.Column="0">
+        <TabItem Header="Explorer" Padding="4">
+          <DockPanel><StackPanel Orientation="Horizontal" DockPanel.Dock="Top"><Button Content="Refresh tree" Click="RefreshTreeClick"/><Button Content="File history" Click="FileHistoryClick" ToolTip="Select a file in Explorer first"/></StackPanel>
+            <TreeView x:Name="ExplorerTree" SelectedItemChanged="TreeSelected" PreviewMouseRightButtonDown="ExplorerRightClick" ContextMenuOpening="ExplorerMenuOpening" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
+              <TreeView.ContextMenu>
+                <ContextMenu>
+                  <MenuItem x:Name="ExplorerOpenWith" Header="Open With..." Click="ExplorerOpenWithClick"/>
+                  <Separator/>
+                  <MenuItem x:Name="ExplorerReveal" Header="Reveal in File Explorer" Click="ExplorerRevealClick"/>
+                  <MenuItem x:Name="ExplorerOpenTerminal" Header="Open in Integrated Terminal" Click="ExplorerOpenTerminalClick"/>
+                  <Separator/>
+                  <MenuItem x:Name="ExplorerCopyPath" Header="Copy Path" Click="ExplorerCopyPathClick"/>
+                  <MenuItem x:Name="ExplorerCopyRelativePath" Header="Copy Relative Path" Click="ExplorerCopyRelativePathClick"/>
+                  <Separator/>
+                  <MenuItem x:Name="ExplorerRename" Header="Rename..." Click="ExplorerRenameClick"/>
+                  <MenuItem x:Name="ExplorerDelete" Header="Delete" Click="ExplorerDeleteClick"/>
+                  <Separator/>
+                  <MenuItem x:Name="ExplorerFileHistory" Header="Git: View File History" Click="ExplorerFileHistoryClick"/>
+                </ContextMenu>
+              </TreeView.ContextMenu>
+            </TreeView>
+          </DockPanel>
+        </TabItem>
+        <TabItem x:Name="SourceControlTab" AutomationProperties.Name="Source Control" Padding="4">
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock x:Name="SourceControlLabel" Text="Source Control" VerticalAlignment="Center">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding HasItems, ElementName=StagedList}" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding HasItems, ElementName=ChangesList}" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <Border x:Name="SourceControlBadge" Width="28" Height="16" Margin="4,0,0,0" CornerRadius="8"
+                      Background="{StaticResource InactiveSelectedBrush}" VerticalAlignment="Center" Visibility="Hidden">
+                <TextBlock x:Name="SourceControlBadgeText" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource ActivityBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+            </StackPanel>
+          </TabItem.Header>
+          <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition x:Name="SourceChangesRow" Height="*"/><RowDefinition x:Name="SourceHistoryDividerRow" Height="5"/><RowDefinition x:Name="SourceHistoryRow" Height="0.9*"/></Grid.RowDefinitions>
+            <StackPanel Grid.Row="0" x:Name="SourceActions">
+              <TextBlock x:Name="BranchText" Margin="9,6" Text="Current branch" TextWrapping="Wrap"/>
+              <WrapPanel><Button Content="Refresh" Click="RefreshClick"/><Button Content="Pull" Click="PullClick"/><Button Content="Push" Click="PushClick"/></WrapPanel>
+              <TextBox x:Name="CommitMessage" Margin="6" ToolTip="Commit message. Ctrl+Enter commits staged files."/>
+              <WrapPanel><Button Content="Commit staged" Click="CommitClick"/><Button Content="Stage all" Click="StageAllClick"/></WrapPanel>
+            </StackPanel>
+            <Grid x:Name="SourceChanges" Grid.Row="1">
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="5"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+              <DockPanel>
+                <Button Content="Unstage selected" DockPanel.Dock="Right" Click="UnstageClick"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
+                  <TextBlock x:Name="StagedTitle" Text="Staged changes" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="StagedAddedTotal" Foreground="{StaticResource DiffAddedBrush}" Margin="10,0,6,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                  <TextBlock x:Name="StagedDeletedTotal" Foreground="{StaticResource DiffDeletedBrush}" VerticalAlignment="Center" Visibility="Collapsed"/>
+                </StackPanel>
+              </DockPanel>
+              <DataGrid x:Name="StagedList" Grid.Row="1" SelectionMode="Extended" SelectionChanged="StatusSelection" PreviewMouseRightButtonDown="StatusListRightClick" ContextMenuOpening="StagedMenuOpening" ToolTip="Ctrl+click toggles files; Shift+click selects a range. Right-click for file actions.">
+                <DataGrid.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem x:Name="StagedUnstage" Header="Unstage" Click="UnstageClick"/>
+                    <Separator/>
+                    <MenuItem x:Name="StagedOpenWith" Header="Open With..." Click="StatusOpenWithClick"/>
+                    <Separator/>
+                    <MenuItem x:Name="StagedReveal" Header="Reveal in File Explorer" Click="StatusRevealClick"/>
+                    <MenuItem x:Name="StagedOpenTerminal" Header="Open in Integrated Terminal" Click="StatusOpenTerminalClick"/>
+                    <Separator/>
+                    <MenuItem x:Name="StagedCopyPath" Header="Copy Path" Click="StatusCopyPathClick"/>
+                    <MenuItem x:Name="StagedCopyRelativePath" Header="Copy Relative Path" Click="StatusCopyRelativePathClick"/>
+                    <Separator/>
+                    <MenuItem x:Name="StagedRename" Header="Rename..." Click="StatusRenameClick"/>
+                    <MenuItem x:Name="StagedDelete" Header="Delete" Click="StatusDeleteClick"/>
+                    <Separator/>
+                    <MenuItem x:Name="StagedFileHistory" Header="Git: View File History" Click="StatusFileHistoryClick"/>
+                  </ContextMenu>
+                </DataGrid.ContextMenu>
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="File" Binding="{Binding Path}" Width="*"/>
+                  <DataGridTemplateColumn Header="" Width="72">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                          <TextBlock Text="{Binding AddedText}" Foreground="{StaticResource DiffAddedBrush}" Margin="0,0,6,0"/>
+                          <TextBlock Text="{Binding DeletedText}" Foreground="{StaticResource DiffDeletedBrush}"/>
+                        </StackPanel>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+                  <DataGridTextColumn Header="State" Binding="{Binding State}" Width="50"/>
+                </DataGrid.Columns>
+              </DataGrid>
+              <GridSplitter x:Name="StagedChangesSplitter" Grid.Row="2" Height="5" HorizontalAlignment="Stretch" Background="#444444" Cursor="SizeNS" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"/>
+              <Grid Grid.Row="3">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <DockPanel>
+                  <Button Content="Stage selected" DockPanel.Dock="Right" Click="StageClick"/>
+                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
+                    <TextBlock x:Name="ChangesTitle" Text="Changes" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ChangesAddedTotal" Foreground="{StaticResource DiffAddedBrush}" Margin="10,0,6,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                    <TextBlock x:Name="ChangesDeletedTotal" Foreground="{StaticResource DiffDeletedBrush}" VerticalAlignment="Center" Visibility="Collapsed"/>
+                  </StackPanel>
+                </DockPanel>
+                <DataGrid x:Name="ChangesList" Grid.Row="1" SelectionMode="Extended" SelectionChanged="StatusSelection" PreviewMouseRightButtonDown="StatusListRightClick" ContextMenuOpening="ChangesMenuOpening" ToolTip="Ctrl+click toggles files; Shift+click selects a range. Right-click for file actions.">
+                  <DataGrid.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem x:Name="ChangesStage" Header="Stage" Click="StageClick"/>
+                      <MenuItem x:Name="ChangesDiscard" Header="Discard" Click="DiscardClick"/>
+                      <Separator/>
+                      <MenuItem x:Name="ChangesOpenWith" Header="Open With..." Click="StatusOpenWithClick"/>
+                      <Separator/>
+                      <MenuItem x:Name="ChangesReveal" Header="Reveal in File Explorer" Click="StatusRevealClick"/>
+                      <MenuItem x:Name="ChangesOpenTerminal" Header="Open in Integrated Terminal" Click="StatusOpenTerminalClick"/>
+                      <Separator/>
+                      <MenuItem x:Name="ChangesCopyPath" Header="Copy Path" Click="StatusCopyPathClick"/>
+                      <MenuItem x:Name="ChangesCopyRelativePath" Header="Copy Relative Path" Click="StatusCopyRelativePathClick"/>
+                      <Separator/>
+                      <MenuItem x:Name="ChangesRename" Header="Rename..." Click="StatusRenameClick"/>
+                      <MenuItem x:Name="ChangesDelete" Header="Delete" Click="StatusDeleteClick"/>
+                      <Separator/>
+                      <MenuItem x:Name="ChangesFileHistory" Header="Git: View File History" Click="StatusFileHistoryClick"/>
+                    </ContextMenu>
+                  </DataGrid.ContextMenu>
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="File" Binding="{Binding Path}" Width="*"/>
+                    <DataGridTemplateColumn Header="" Width="72">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding AddedText}" Foreground="{StaticResource DiffAddedBrush}" Margin="0,0,6,0"/>
+                            <TextBlock Text="{Binding DeletedText}" Foreground="{StaticResource DiffDeletedBrush}"/>
+                          </StackPanel>
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="State" Binding="{Binding State}" Width="50"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </Grid>
+            <GridSplitter x:Name="SourceHistorySplitter" Grid.Row="2" Height="5" HorizontalAlignment="Stretch" Background="#444444"/>
+            <Grid Grid.Row="3">
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+              <StackPanel Grid.Row="0">
+                <TextBlock x:Name="HistoryTitle" Text="Commit graph · all local refs" Margin="8,4" TextTrimming="CharacterEllipsis"/>
+                <WrapPanel><Button Content="All history" Click="AllHistoryClick"/><Button Content="Load more" Click="MoreHistoryClick"/><Button Content="Compare 2" Click="CompareClick" ToolTip="Ctrl+click two commits"/><Button x:Name="HistoryVisibilityButton" Content="−" Width="26" Padding="2,0" Click="ToggleHistoryVisibility" ToolTip="Collapse history list" AutomationProperties.Name="Collapse history list"/><Button x:Name="HistorySizeButton" Content="⤢" Width="28" Padding="2,0" Click="ToggleHistorySize" ToolTip="Expand history area" AutomationProperties.Name="Expand history area"/></WrapPanel>
+              </StackPanel>
+              <Grid x:Name="HistoryBody" Grid.Row="1">
+                <DataGrid x:Name="HistoryList" SelectionMode="Extended" SelectionChanged="HistorySelection" PreviewMouseDown="HistoryMouseDown" RowHeight="27">
+                  <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="Graph" Width="80"><DataGridTemplateColumn.CellTemplate><DataTemplate><local:GraphCell Row="{Binding Graph}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Commit" Binding="{Binding Subject}" Width="*"/>
+                    <DataGridTextColumn Header="Refs" Binding="{Binding Refs}" Width="85"/>
+                    <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="85"/>
+                    <DataGridTextColumn Header="Hash" Binding="{Binding ShortHash}" Width="75"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </Grid>
+          </Grid>
+        </TabItem>
+        <TabItem x:Name="SearchTab" Header="Search" Padding="4">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Margin="6,6,6,0">
+              <TextBlock x:Name="SearchQueryLabel" Text="Search repository" Margin="0,0,0,4"/>
+              <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchQuery" Style="{StaticResource SearchTextBoxStyle}" Margin="0,0,6,0"
+                         ToolTip="Type to search or press Enter to run immediately."
+                         TextChanged="SearchOptionChanged" KeyDown="SearchQueryKeyDown"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                  <ToggleButton x:Name="SearchMatchCase" Style="{StaticResource SearchToggleStyle}" Content="Aa" Margin="0,0,4,0"
+                                AutomationProperties.Name="Match Case" ToolTip="Match Case" Click="SearchOptionChanged"/>
+                  <ToggleButton x:Name="SearchWholeWord" Style="{StaticResource SearchToggleStyle}" Content="ab" Margin="0,0,4,0"
+                                AutomationProperties.Name="Match Whole Word" ToolTip="Match Whole Word" Click="SearchOptionChanged"/>
+                  <ToggleButton x:Name="SearchUseRegex" Style="{StaticResource SearchToggleStyle}" Content=".*"
+                                AutomationProperties.Name="Use Regular Expression" ToolTip="Use Regular Expression" Click="SearchOptionChanged"/>
+                </StackPanel>
+              </Grid>
+              <TextBlock x:Name="SearchIncludeLabel" Text="Files to include" Margin="0,0,0,4"/>
+              <TextBox x:Name="SearchInclude" Style="{StaticResource SearchTextBoxStyle}" Margin="0,0,0,8"
+                       ToolTip="Comma-separated globs, such as *.dart, *.cs" TextChanged="SearchOptionChanged"/>
+              <TextBlock x:Name="SearchExcludeLabel" Text="Files to exclude" Margin="0,0,0,4"/>
+              <TextBox x:Name="SearchExclude" Style="{StaticResource SearchTextBoxStyle}" Margin="0,0,0,8"
+                       ToolTip="Comma-separated globs, such as *.g.dart, build/**" TextChanged="SearchOptionChanged"/>
+              <TextBlock x:Name="SearchStatus" Text="Type to search across the repository." Margin="0,0,0,6"
+                         TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
+            </StackPanel>
+            <TreeView x:Name="SearchResults" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
+                      SelectedItemChanged="SearchResultSelected" MouseDoubleClick="SearchResultActivated"/>
+          </DockPanel>
+        </TabItem>
+      </TabControl>
+      <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#444444"/>
+      <Grid Grid.Column="2">
+        <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="140"/><RowDefinition x:Name="PanelDivider" Height="5"/><RowDefinition x:Name="PanelRow" Height="240" MinHeight="100"/></Grid.RowDefinitions>
+        <Grid Grid.Row="0">
+          <Grid.ColumnDefinitions><ColumnDefinition x:Name="HistoryFilesColumn" Width="0"/><ColumnDefinition x:Name="HistoryFilesSplitterColumn" Width="0"/><ColumnDefinition x:Name="DocumentsColumn" Width="*"/></Grid.ColumnDefinitions>
+          <Border x:Name="HistoryFilesPanel" Grid.Column="0" Background="#303030" Visibility="Collapsed">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Background="#262626" BorderBrush="#3D3D3D" BorderThickness="0,0,0,1" Padding="8,6">
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,4">
+                    <Button x:Name="CopyDetailSubjectButton" DockPanel.Dock="Right" Content="Copy message" Click="CopySelectedCommitMessageClick" ToolTip="Copy commit message" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                    <TextBlock x:Name="CommitDetailSubject" FontWeight="SemiBold" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                  </DockPanel>
+                  <DockPanel Margin="0,0,0,4">
+                    <Button x:Name="CopyDetailHashButton" DockPanel.Dock="Right" Content="Copy hash" Click="CopySelectedCommitHashClick" ToolTip="Copy full commit hash" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                    <TextBlock x:Name="CommitDetailHash" Foreground="#AAAAAA" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                  </DockPanel>
+                  <TextBlock x:Name="CommitFilesTitle" Foreground="#888888" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                </StackPanel>
+              </Border>
+              <ListBox x:Name="CommitFilesList" BorderThickness="0" Background="Transparent" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True">
+                <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate><DataTemplate>
+                  <Button Click="CommitFileClick" ToolTip="{Binding Label}" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" Padding="4,3" Margin="0">
+                    <DockPanel><TextBlock Text="{Binding State}" DockPanel.Dock="Right" Foreground="#88C999" Margin="8,0"/><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DockPanel>
+                  </Button>
+                </DataTemplate></ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+          <GridSplitter x:Name="HistoryFilesSplitter" Grid.Column="1" Width="5" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="#444444" Cursor="SizeWE" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Visibility="Collapsed"/>
+          <TabControl x:Name="Documents" Grid.Column="2" SelectionChanged="DocumentSelection"/>
+        </Grid>
+        <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="#444444"/>
+        <TabControl Grid.Row="2" x:Name="BottomPanel" SelectionChanged="PanelSelection">
+          <TabItem Header="Problems" x:Name="ProblemsTab">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                <Button x:Name="RestartLspButton" Content="Restart language servers" Click="RestartLspClick"/>
+                <Button x:Name="AnalyzeButton" Content="CLI snapshot" Click="AnalyzeClick" ToolTip="Runs CLI analyzers for detected Dart/Flutter and Go stacks."/>
+                <Button x:Name="CancelAnalysisButton" Content="Cancel" IsEnabled="False" Click="CancelAnalysisClick"/>
+                <TextBlock x:Name="AnalysisStatus" Text="Starting language servers..." Margin="8" VerticalAlignment="Center" TextWrapping="Wrap"/>
+              </StackPanel>
+              <DataGrid x:Name="ProblemsList" MouseDoubleClick="ProblemDoubleClick" SelectionMode="Single">
+                <DataGrid.Columns><DataGridTextColumn Header="Severity" Binding="{Binding Severity}" Width="75"/><DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="70"/><DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="2*"/><DataGridTextColumn Header="File" Binding="{Binding File}" Width="*"/><DataGridTextColumn Header="Line" Binding="{Binding Line}" Width="50"/><DataGridTextColumn Header="Col" Binding="{Binding Column}" Width="45"/><DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="100"/></DataGrid.Columns>
+              </DataGrid>
+            </DockPanel>
+          </TabItem>
+          <TabItem Header="Output" x:Name="OutputTab"><TextBox x:Name="OutputText" IsReadOnly="True" FontFamily="Consolas" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/></TabItem>
+          <TabItem Header="Terminal" x:Name="TerminalTab" PreviewMouseLeftButtonUp="TerminalTabMouseUp"><Grid x:Name="TerminalHost"><TextBlock x:Name="TerminalHint" Text="PowerShell starts when you open this tab." Margin="12"/></Grid></TabItem>
+        </TabControl>
+      </Grid>
+    </Grid>
+  </DockPanel>
+</Window>

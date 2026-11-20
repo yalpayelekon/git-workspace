@@ -1,0 +1,9 @@
+{
+  "name": "gitworkspace-terminal",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@xterm/xterm": "6.0.0",
+    "@xterm/addon-fit": "0.11.0"
+  }
+}
