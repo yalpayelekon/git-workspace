@@ -2,8 +2,8 @@
 
 A native Windows Git GUI with AvalonEdit document tabs, side-by-side diffs, a
 commit graph, `git grep` search, ConPTY + xterm.js terminal, and optional
-Dart / Go / Python / TypeScript / Rust / C# language servers. Built with WPF
-(.NET 10) — no Electron.
+Dart / Go / Python / TypeScript / Rust / C# / PHP / C/C++ language servers.
+Built with WPF (.NET 10) — no Electron.
 
 ## Requirements
 
@@ -24,11 +24,23 @@ Optional for language features:
 - Optional `ruff` on PATH for Python **CLI snapshot**
 - `typescript-language-server` when the opened repo has root `package.json`,
   `tsconfig.json`, or `jsconfig.json` (npm global / PATH); optional `tsc` for
-  TypeScript **CLI snapshot**
+  TypeScript **CLI snapshot**. Pin TypeScript to 5.x for the language server —
+  TypeScript 7 removed `tsserver.js`, which `typescript-language-server` still
+  needs (`npm i -g typescript-language-server typescript@5`)
 - `rust-analyzer` when the opened repo has `Cargo.toml` (PATH or `~/.cargo/bin`);
-  optional `cargo check` for Rust **CLI snapshot**
+  optional `cargo check` for Rust **CLI snapshot**. Install the analyzer
+  component (`rustup component add rust-analyzer`), not only the rustup shim
 - `csharp-ls` (or OmniSharp `-lsp`) when a `.sln` / `.csproj` exists at the
-  root or one project folder deep; optional `dotnet build` for C# **CLI snapshot**
+  root or one project folder deep; optional `dotnet build` for C# **CLI snapshot**.
+  On .NET 10, pin `csharp-ls` 0.27.0 (`dotnet tool install -g csharp-ls --version 0.27.0`);
+  newer package versions may require .NET 11
+- `intelephense` (or `phpactor language-server`) when the opened repo has
+  `composer.json`, `phpunit.xml`, or `phpunit.xml.dist`; optional `phpstan`
+  (preferred) or `php -l` for PHP **CLI snapshot**
+- `clangd` when the opened repo has `compile_commands.json`, `CMakeLists.txt`,
+  `Makefile`/`makefile`, `meson.build`, or `.clangd` (also checks
+  `build/compile_commands.json`); optional `clang-tidy` + compile database for
+  C/C++ **CLI snapshot**
 
 ## Start
 
@@ -63,9 +75,10 @@ Use **File → Open Repository…** to switch checkouts while running.
   commit graph with side-by-side revision diffs.
 - **Problems** — language servers start only when matching project files exist
   (Dart, gopls, Python LSP, typescript-language-server, rust-analyzer,
-  csharp-ls/OmniSharp). **CLI snapshot** runs `flutter analyze` (or
-  `dart analyze`), `go vet`, `ruff check`, `tsc --noEmit`, `cargo check`,
-  and/or `dotnet build` for detected stacks.
+  csharp-ls/OmniSharp, intelephense/phpactor, clangd). **CLI snapshot** runs
+  `flutter analyze` (or `dart analyze`), `go vet`, `ruff check`, `tsc --noEmit`,
+  `cargo check`, `dotnet build`, `phpstan`/`php -l`, and/or `clang-tidy` for
+  detected stacks.
 - **Terminal** — interactive PowerShell via ConPTY; WebView2 + xterm.js loads
   on first open.
 

@@ -314,6 +314,32 @@ public sealed class LspProcessHost : IAsyncDisposable
         return null;
     }
 
+    /// <summary>Resolve Intelephense, then phpactor language-server.</summary>
+    public static (string Executable, string[] Arguments)? FindPhpLanguageServer()
+    {
+        foreach (var name in new[] { "intelephense.cmd", "intelephense", "intelephense.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return (path, ["--stdio"]);
+        }
+        foreach (var name in new[] { "phpactor", "phpactor.bat", "phpactor.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return (path, ["language-server"]);
+        }
+        return null;
+    }
+
+    public static string? FindClangd()
+    {
+        foreach (var name in new[] { "clangd", "clangd.exe" })
+        {
+            var path = FindOnPathOrCommonDirs(name);
+            if (path != null) return path;
+        }
+        return null;
+    }
+
     private static string? FindOnPathOrCommonDirs(string name)
     {
         var found = Processes.Find(name);

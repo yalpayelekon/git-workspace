@@ -9,10 +9,13 @@ public sealed record WorkspaceProfile(
     bool HasTypeScript,
     bool HasRust,
     bool HasCSharp,
-    string? GoModuleDirectory)
+    bool HasPhp,
+    bool HasCpp,
+    string? GoModuleDirectory,
+    string? DotNetProjectPath)
 {
     public bool HasAnyLanguage =>
-        HasDart || HasGo || HasPython || HasTypeScript || HasRust || HasCSharp;
+        HasDart || HasGo || HasPython || HasTypeScript || HasRust || HasCSharp || HasPhp || HasCpp;
 
     public static WorkspaceProfile Detect(string root)
     {
@@ -38,31 +41,49 @@ public sealed record WorkspaceProfile(
             File.Exists(Path.Combine(fullRoot, "tsconfig.json")) ||
             File.Exists(Path.Combine(fullRoot, "jsconfig.json"));
         var hasRust = File.Exists(Path.Combine(fullRoot, "Cargo.toml"));
-        var hasCSharp = HasDotNetProject(fullRoot);
-        return new(hasDart, goModule != null, hasPython, hasTypeScript, hasRust, hasCSharp, goModule);
+        var dotNetProject = FindDotNetTarget(fullRoot);
+        var hasPhp =
+            File.Exists(Path.Combine(fullRoot, "composer.json")) ||
+            File.Exists(Path.Combine(fullRoot, "phpunit.xml")) ||
+            File.Exists(Path.Combine(fullRoot, "phpunit.xml.dist"));
+        var hasCpp =
+            File.Exists(Path.Combine(fullRoot, "compile_commands.json")) ||
+            File.Exists(Path.Combine(fullRoot, "CMakeLists.txt")) ||
+            File.Exists(Path.Combine(fullRoot, "Makefile")) ||
+            File.Exists(Path.Combine(fullRoot, "makefile")) ||
+            File.Exists(Path.Combine(fullRoot, "meson.build")) ||
+            File.Exists(Path.Combine(fullRoot, ".clangd")) ||
+            File.Exists(Path.Combine(fullRoot, "build", "compile_commands.json"));
+        return new(hasDart, goModule != null, hasPython, hasTypeScript, hasRust, dotNetProject != null,
+            hasPhp, hasCpp, goModule, dotNetProject);
     }
 
-    /// <summary>Root .sln/.csproj, or one nested project folder (e.g. Workspace/Workspace.csproj).</summary>
-    private static bool HasDotNetProject(string root)
+    /// <summary>Prefer root .sln, then root .csproj, then the first nested project/solution.</summary>
+    public static string? FindDotNetTarget(string root)
     {
         try
         {
-            if (Directory.EnumerateFiles(root, "*.sln").Any()) return true;
-            if (Directory.EnumerateFiles(root, "*.csproj").Any()) return true;
-            foreach (var dir in Directory.EnumerateDirectories(root))
+            var solution = Directory.EnumerateFiles(root, "*.sln").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+            if (solution != null) return solution;
+            var project = Directory.EnumerateFiles(root, "*.csproj").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+            if (project != null) return project;
+            foreach (var dir in Directory.EnumerateDirectories(root).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
                 var name = Path.GetFileName(dir);
                 if (name.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
                     name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
                     name.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
                     name.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
-                    name.Equals("target", StringComparison.OrdinalIgnoreCase))
+                    name.Equals("target", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("vendor", StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (Directory.EnumerateFiles(dir, "*.sln").Any()) return true;
-                if (Directory.EnumerateFiles(dir, "*.csproj").Any()) return true;
+                solution = Directory.EnumerateFiles(dir, "*.sln").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (solution != null) return solution;
+                project = Directory.EnumerateFiles(dir, "*.csproj").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (project != null) return project;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        return false;
+        return null;
     }
 }

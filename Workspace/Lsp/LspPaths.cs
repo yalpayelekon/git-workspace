@@ -17,7 +17,17 @@ public static class LspPaths
     {
         if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed) || parsed.Scheme != Uri.UriSchemeFile)
             return null;
-        return Path.GetFullPath(parsed.LocalPath);
+        // Prefer AbsolutePath so percent-encoded drive letters (c%3A) survive as c: after unescape.
+        // System.Uri.LocalPath on Windows can turn file:///c%3A/foo into \c:\foo, and GetFullPath
+        // then resolves it against the current drive (D:\c:\foo).
+        var raw = string.IsNullOrEmpty(parsed.AbsolutePath) ? parsed.LocalPath : parsed.AbsolutePath;
+        var local = Uri.UnescapeDataString(raw).Replace('/', Path.DirectorySeparatorChar);
+        if (local.Length >= 3 &&
+            (local[0] == Path.DirectorySeparatorChar || local[0] == '/') &&
+            char.IsAsciiLetter(local[1]) &&
+            local[2] == ':')
+            local = local[1..];
+        return Path.GetFullPath(local);
     }
 
     public static string? LanguageId(string path) => Path.GetExtension(path).ToLowerInvariant() switch
@@ -31,6 +41,9 @@ public static class LspPaths
         ".jsx" => "javascriptreact",
         ".rs" => "rust",
         ".cs" => "csharp",
+        ".php" => "php",
+        ".c" or ".h" => "c",
+        ".cpp" or ".cc" or ".cxx" or ".hpp" or ".hh" or ".hxx" or ".ipp" => "cpp",
         _ => null
     };
 
@@ -51,7 +64,17 @@ public static class LspPaths
             name.Equals("tsconfig.json", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("jsconfig.json", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("Cargo.toml", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("Cargo.lock", StringComparison.OrdinalIgnoreCase))
+            name.Equals("Cargo.lock", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("composer.json", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("composer.lock", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("phpunit.xml", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("phpunit.xml.dist", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("CMakeLists.txt", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Makefile", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("makefile", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("meson.build", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("compile_commands.json", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals(".clangd", StringComparison.OrdinalIgnoreCase))
             return true;
         var extension = Path.GetExtension(path);
         if (extension.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
@@ -70,6 +93,7 @@ public static class LspPaths
             if (part.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("vendor", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("build", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals(".dart_tool", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
@@ -79,7 +103,8 @@ public static class LspPaths
                 part.Equals("venv", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals(".mypy_cache", StringComparison.OrdinalIgnoreCase) ||
                 part.Equals(".pytest_cache", StringComparison.OrdinalIgnoreCase) ||
-                part.Equals(".ruff_cache", StringComparison.OrdinalIgnoreCase))
+                part.Equals(".ruff_cache", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals(".cache", StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;

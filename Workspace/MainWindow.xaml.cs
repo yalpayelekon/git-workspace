@@ -133,7 +133,7 @@ public partial class MainWindow : Window
     private static string WelcomeText(WorkspaceProfile profile)
     {
         var problems = profile.HasAnyLanguage
-            ? "Problems: language servers start for detected stacks (Dart, Go, Python, TypeScript/JS, Rust, C#). Use Restart language servers if a tool was missing at startup; CLI snapshot runs the matching analyzer for each detected stack."
+            ? "Problems: language servers start for detected stacks (Dart, Go, Python, TypeScript/JS, Rust, C#, PHP, C/C++). Use Restart language servers if a tool was missing at startup; CLI snapshot runs the matching analyzer for each detected stack."
             : "Problems: no supported project markers detected, so language servers and CLI analyze stay off.";
         return $"{AppInfo.ProductName}\n\nExplorer: browse files and edit text in the File tab (Ctrl+S saves, Ctrl+Shift+R reverts).\nSearch: find text across the repository with case / word / regex and include/exclude globs.\nSource Control: stage, commit, pull, push and inspect history.\n{problems}\nTerminal: open interactive PowerShell sessions.\n\nCtrl+B  sidebar\nCtrl+J  bottom panel\nCtrl+`  terminal\nCtrl+Shift+F  search\nCtrl+Shift+M  problems\nCtrl+S  save file\nCtrl+Shift+R  revert file\nF5  refresh Git\n\nFile → Open Repository… switches checkouts. Language servers start with the window when applicable; terminals still start when opened.";
     }
@@ -147,6 +147,8 @@ public partial class MainWindow : Window
         if (profile.HasTypeScript) parts.Add("tsc --noEmit");
         if (profile.HasRust) parts.Add("cargo check");
         if (profile.HasCSharp) parts.Add("dotnet build");
+        if (profile.HasPhp) parts.Add("phpstan/php -l");
+        if (profile.HasCpp) parts.Add("clang-tidy");
         return parts.Count == 0
             ? "No supported language project detected in this repository."
             : $"Force {string.Join(" + ", parts)} once (does not replace live LSP diagnostics).";
@@ -1209,6 +1211,8 @@ public partial class MainWindow : Window
         if (profile.HasTypeScript) sources.Add("TypeScript");
         if (profile.HasRust) sources.Add("Rust");
         if (profile.HasCSharp) sources.Add("C#");
+        if (profile.HasPhp) sources.Add("PHP");
+        if (profile.HasCpp) sources.Add("C/C++");
         try
         {
             foreach (var source in sources)
@@ -1223,7 +1227,9 @@ public partial class MainWindow : Window
                         "Python" => await Diagnostics.PythonAsync(root, token),
                         "TypeScript" => await Diagnostics.TypeScriptAsync(root, token),
                         "Rust" => await Diagnostics.RustAsync(root, token),
-                        _ => await Diagnostics.CSharpAsync(root, token)
+                        "C#" => await Diagnostics.CSharpAsync(root, token, profile.DotNetProjectPath),
+                        "PHP" => await Diagnostics.PhpAsync(root, token),
+                        _ => await Diagnostics.CppAsync(root, token)
                     };
                     findings.AddRange(result.Problems); failed |= result.Failed;
                     ProblemsList.ItemsSource = findings.ToArray();

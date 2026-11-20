@@ -71,9 +71,21 @@ internal static class Program
                     }
                     if (profile.HasCSharp)
                     {
-                        var result = await Diagnostics.CSharpAsync(repository, timeout.Token);
+                        var result = await Diagnostics.CSharpAsync(repository, timeout.Token, profile.DotNetProjectPath);
                         Console.WriteLine($"Analyzer C#: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
                         Check(!result.Failed, "C# analyzer invocation failed");
+                    }
+                    if (profile.HasPhp)
+                    {
+                        var result = await Diagnostics.PhpAsync(repository, timeout.Token);
+                        Console.WriteLine($"Analyzer PHP: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
+                        Check(!result.Failed, "PHP analyzer invocation failed");
+                    }
+                    if (profile.HasCpp)
+                    {
+                        var result = await Diagnostics.CppAsync(repository, timeout.Token);
+                        Console.WriteLine($"Analyzer C/C++: {result.Problems.Count} problems; failed={result.Failed}\n{result.Log[..Math.Min(1000, result.Log.Length)]}");
+                        Check(!result.Failed, "C/C++ analyzer invocation failed");
                     }
                 }
                 else if (args is ["--git-locks"])
@@ -251,10 +263,15 @@ internal static class Program
         await File.WriteAllTextAsync(Path.Combine(root, "Cargo.toml"), "[package]\nname = \"sample\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
         Directory.CreateDirectory(Path.Combine(root, "App"));
         await File.WriteAllTextAsync(Path.Combine(root, "App", "App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n");
+        await File.WriteAllTextAsync(Path.Combine(root, "composer.json"), "{\"name\":\"sample/app\"}\n");
+        await File.WriteAllTextAsync(Path.Combine(root, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.20)\nproject(sample)\n");
         var fullProfile = WorkspaceProfile.Detect(root);
         Check(fullProfile.HasDart && fullProfile.HasGo && fullProfile.HasPython
             && fullProfile.HasTypeScript && fullProfile.HasRust && fullProfile.HasCSharp
-            && string.Equals(fullProfile.GoModuleDirectory, Path.Combine(root, "go"), StringComparison.OrdinalIgnoreCase),
+            && fullProfile.HasPhp && fullProfile.HasCpp
+            && string.Equals(fullProfile.GoModuleDirectory, Path.Combine(root, "go"), StringComparison.OrdinalIgnoreCase)
+            && fullProfile.DotNetProjectPath != null
+            && fullProfile.DotNetProjectPath.EndsWith("App.csproj", StringComparison.OrdinalIgnoreCase),
             "WorkspaceProfile missed one or more language project markers");
         Check(LspPaths.LanguageId(Path.Combine(root, "app.py")) == "python"
             && LspPaths.LanguageId(Path.Combine(root, "types.pyi")) == "python"
@@ -263,8 +280,13 @@ internal static class Program
             && LspPaths.LanguageId(Path.Combine(root, "a.js")) == "javascript"
             && LspPaths.LanguageId(Path.Combine(root, "a.jsx")) == "javascriptreact"
             && LspPaths.LanguageId(Path.Combine(root, "a.rs")) == "rust"
-            && LspPaths.LanguageId(Path.Combine(root, "a.cs")) == "csharp",
-            "Language ids were not mapped for Python/TS/Rust/C#");
+            && LspPaths.LanguageId(Path.Combine(root, "a.cs")) == "csharp"
+            && LspPaths.LanguageId(Path.Combine(root, "a.php")) == "php"
+            && LspPaths.LanguageId(Path.Combine(root, "a.c")) == "c"
+            && LspPaths.LanguageId(Path.Combine(root, "a.h")) == "c"
+            && LspPaths.LanguageId(Path.Combine(root, "a.cpp")) == "cpp"
+            && LspPaths.LanguageId(Path.Combine(root, "a.hpp")) == "cpp",
+            "Language ids were not mapped for Python/TS/Rust/C#/PHP/C/C++");
         var ruffProblems = Diagnostics.ParseRuff(
             """[{"filename":"mod.py","code":"F401","message":"unused import","severity":"error","location":{"row":2,"column":1}}]""",
             root);
@@ -281,14 +303,65 @@ internal static class Program
         Check(cargoProblems.Count == 1 && cargoProblems[0].Source == "Rust" && cargoProblems[0].Code == "E0425" && cargoProblems[0].Line == 4,
             "Cargo JSON diagnostic parsing failed");
         var csProblems = Diagnostics.ParseDotNet(
-            @"App\Program.cs(12,17): error CS0103: The name 'x' does not exist in the current context",
+            @"App\Program.cs(12,17): error CS0103: The name 'x' does not exist in the current context
+App\Program.cs(12,17): error CS0103: The name 'x' does not exist in the current context
+C:\Program Files\dotnet\sdk\10.0.100\Sdks\Microsoft.NET.Sdk\targets\Microsoft.PackageDependencyResolution.targets(266,5): error NETSDK1004: Assets file not found",
             root);
         Check(csProblems.Count == 1 && csProblems[0].Source == "C#" && csProblems[0].Code == "CS0103" && csProblems[0].Column == 17,
-            "dotnet build diagnostic parsing failed");
+            "dotnet build diagnostic parsing failed to dedupe or filter SDK noise");
+        Check(Diagnostics.TypeScriptProjectArgs(root).Count == 0,
+            "TypeScript args should be empty when package.json has no source files");
+        await File.WriteAllTextAsync(Path.Combine(root, "broken.ts"), "const n: number = 'x';\n");
+        var inferredArgs = Diagnostics.TypeScriptProjectArgs(root);
+        Check(inferredArgs.Count == 1 && inferredArgs[0].Any(a => a.EndsWith("broken.ts", StringComparison.OrdinalIgnoreCase))
+            && inferredArgs[0].All(a => a != "."),
+            "package-only TypeScript snapshot should pass explicit sources, not '.'");
+        File.Delete(Path.Combine(root, "broken.ts"));
+        Directory.CreateDirectory(Path.Combine(root, "packages", "lib"));
+        await File.WriteAllTextAsync(Path.Combine(root, "tsconfig.json"),
+            """{"files":[],"references":[{"path":"./packages/lib"}]}""");
+        await File.WriteAllTextAsync(Path.Combine(root, "packages", "lib", "tsconfig.json"),
+            """{"compilerOptions":{"strict":true},"files":["index.ts"]}""");
+        var solutionArgs = Diagnostics.TypeScriptProjectArgs(root);
+        Check(solutionArgs.Count == 1 && solutionArgs[0].Any(a => a.Replace('\\', '/').Contains("packages/lib", StringComparison.OrdinalIgnoreCase)),
+            "solution-style tsconfig should check referenced projects");
+        Directory.Delete(Path.Combine(root, "packages"), true);
+        File.Delete(Path.Combine(root, "tsconfig.json"));
+        var phpStan = Diagnostics.ParsePhpStan(
+            """{"files":{"src/App.php":{"messages":[{"message":"Undefined variable $x","line":8,"identifier":"variable.undefined"}]}}}""",
+            root);
+        Check(phpStan.Count == 1 && phpStan[0].Source == "PHP" && phpStan[0].Line == 8 && phpStan[0].Code == "variable.undefined",
+            "PHPStan JSON diagnostic parsing failed");
+        var phpLint = Diagnostics.ParsePhpLint(
+            "Parse error: syntax error, unexpected token \"}\" in src/broken.php on line 3",
+            root);
+        Check(phpLint.Count == 1 && phpLint[0].Line == 3 && phpLint[0].Code == "syntax",
+            "php -l diagnostic parsing failed");
+        var tidy = Diagnostics.ParseClangTidy(
+            "src/main.cpp:12:5: error: no matching function for call to 'foo' [clang-diagnostic-error]\nsrc/util.c:4:1: warning: unused variable 'n' [clang-analyzer-deadcode.DeadStores]",
+            root);
+        Check(tidy.Count == 2 && tidy[0].Source == "C/C++" && tidy[0].Line == 12 && tidy[1].Severity == "warning" && tidy[1].Code == "clang-analyzer-deadcode.DeadStores",
+            "clang-tidy diagnostic parsing failed");
+        var compileDb = Path.Combine(root, "compile_commands_test.json");
+        await File.WriteAllTextAsync(compileDb,
+            """
+            [
+              {"directory":"D:/build/out","file":"../src/main.cpp","command":"clang++ ../src/main.cpp"},
+              {"directory":"D:/build/out","file":"D:/repo/src/util.c","command":"clang D:/repo/src/util.c"}
+            ]
+            """);
+        var compileFiles = Diagnostics.ReadCompileCommandFiles(compileDb, root);
+        Check(compileFiles.Count == 2
+            && compileFiles[0].Replace('\\', '/').EndsWith("build/src/main.cpp", StringComparison.OrdinalIgnoreCase)
+            && compileFiles[1].Replace('\\', '/').EndsWith("repo/src/util.c", StringComparison.OrdinalIgnoreCase),
+            "compile_commands relative file paths must resolve against entry directory");
+        File.Delete(compileDb);
         File.Delete(Path.Combine(root, "pubspec.yaml"));
         File.Delete(Path.Combine(root, "pyproject.toml"));
         File.Delete(Path.Combine(root, "package.json"));
         File.Delete(Path.Combine(root, "Cargo.toml"));
+        File.Delete(Path.Combine(root, "composer.json"));
+        File.Delete(Path.Combine(root, "CMakeLists.txt"));
         Directory.Delete(Path.Combine(root, "go"), true);
         Directory.Delete(Path.Combine(root, "App"), true);
         var language = new LanguageService(root, WorkspaceProfile.Detect(root));
@@ -481,6 +554,13 @@ internal static class Program
 
         var uri = LspPaths.PathToUri(dartFile);
         Check(uri.StartsWith("file:///", StringComparison.Ordinal) && LspPaths.UriToPath(uri) == Path.GetFullPath(dartFile), "LSP path URI round-trip failed");
+        var encodedDrive = "file:///c%3A/Users/demo/app.ts";
+        var encodedPath = LspPaths.UriToPath(encodedDrive);
+        Check(encodedPath != null
+            && encodedPath.StartsWith(@"c:\", StringComparison.OrdinalIgnoreCase)
+            && !encodedPath.Contains(@"\c:\", StringComparison.OrdinalIgnoreCase)
+            && encodedPath.EndsWith(@"Users\demo\app.ts", StringComparison.OrdinalIgnoreCase),
+            "Encoded Windows drive letters in LSP URIs must not resolve against the current drive");
         var unicode = Path.Combine(root, "ışğü", "örnek.dart");
         var unicodeUri = LspPaths.PathToUri(unicode);
         Check(unicodeUri.Contains("%C4%B1", StringComparison.Ordinal) || unicodeUri.Contains("%c4%b1", StringComparison.OrdinalIgnoreCase),

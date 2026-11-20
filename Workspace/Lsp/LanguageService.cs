@@ -16,6 +16,8 @@ public sealed class LanguageService : IAsyncDisposable
     private LspProcessHost? typescript;
     private LspProcessHost? rust;
     private LspProcessHost? csharp;
+    private LspProcessHost? php;
+    private LspProcessHost? cpp;
     private bool disposed;
 
     public DiagnosticStore Store { get; } = new();
@@ -126,6 +128,32 @@ public sealed class LanguageService : IAsyncDisposable
             else errors.Add("C# language server not found (csharp-ls/OmniSharp)");
         }
 
+        if (profile.HasPhp)
+        {
+            var server = LspProcessHost.FindPhpLanguageServer();
+            if (server != null)
+            {
+                php = new LspProcessHost("PHP", server.Value.Executable, server.Value.Arguments, root, Store);
+                Wire(php);
+                try { await php.StartAsync(root, cancellation).ConfigureAwait(false); }
+                catch (Exception ex) { errors.Add("PHP: " + ex.Message); Log?.Invoke("PHP LSP start failed: " + ex.Message); php = null; }
+            }
+            else errors.Add("PHP language server not found (intelephense/phpactor)");
+        }
+
+        if (profile.HasCpp)
+        {
+            var clangd = LspProcessHost.FindClangd();
+            if (clangd != null)
+            {
+                cpp = new LspProcessHost("C/C++", clangd, [], root, Store);
+                Wire(cpp);
+                try { await cpp.StartAsync(root, cancellation).ConfigureAwait(false); }
+                catch (Exception ex) { errors.Add("C/C++: " + ex.Message); Log?.Invoke("clangd start failed: " + ex.Message); cpp = null; }
+            }
+            else errors.Add("clangd not found");
+        }
+
         watcher?.Dispose();
         watcher = new WorkspaceWatcher(root);
         watcher.Changed += OnWatched;
@@ -200,6 +228,8 @@ public sealed class LanguageService : IAsyncDisposable
         "typescript" or "javascript" or "typescriptreact" or "javascriptreact" => typescript,
         "rust" => rust,
         "csharp" => csharp,
+        "php" => php,
+        "c" or "cpp" => cpp,
         _ => null
     };
 
@@ -226,6 +256,8 @@ public sealed class LanguageService : IAsyncDisposable
             if (typescript != null) await typescript.NotifyWatchedAsync(payload).ConfigureAwait(false);
             if (rust != null) await rust.NotifyWatchedAsync(payload).ConfigureAwait(false);
             if (csharp != null) await csharp.NotifyWatchedAsync(payload).ConfigureAwait(false);
+            if (php != null) await php.NotifyWatchedAsync(payload).ConfigureAwait(false);
+            if (cpp != null) await cpp.NotifyWatchedAsync(payload).ConfigureAwait(false);
             foreach (var change in changes)
             {
                 if (change.Type == 3 || !openDocuments.ContainsKey(change.Path)) continue;
@@ -244,6 +276,8 @@ public sealed class LanguageService : IAsyncDisposable
         if (typescript != null) { await typescript.DisposeAsync().ConfigureAwait(false); typescript = null; }
         if (rust != null) { await rust.DisposeAsync().ConfigureAwait(false); rust = null; }
         if (csharp != null) { await csharp.DisposeAsync().ConfigureAwait(false); csharp = null; }
+        if (php != null) { await php.DisposeAsync().ConfigureAwait(false); php = null; }
+        if (cpp != null) { await cpp.DisposeAsync().ConfigureAwait(false); cpp = null; }
     }
 
     public async ValueTask DisposeAsync()
